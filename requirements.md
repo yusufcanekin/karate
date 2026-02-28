@@ -1,6 +1,18 @@
 # Requirements & Analysis
 
-## Behavior
+## Problem Statement
+Karate supports executing feature files that may invoke Java methods, which in turn can trigger additional (nested) Karate feature executions. During such nested execution flows, the JavaScript evaluation environment of the outer scenario is expected to remain consistent.
+
+However, as demonstrated in issue #2502, when a Karate feature calls a Java method that executes another Karate feature (runner-within-runner scenario), subsequent JavaScript function evaluations in the outer scenario may fail with a `ReferenceError`, even though the referenced variable still exists in Karate's internal variable map.
+
+This indicates that nested feature execution can disrupt or replace the JavaScript execution context or its bindings, causing previously accessible variables to become unavailable to JavaScript functions.
+
+The defect occurs specifically when:
+1. A variable is defined in a Karate scenario.
+2. A JavaScript function references that variable.
+3. A nested feature execution occurs (via Java).
+4. The same JavaScript function is invoked again and fails due to the variable no longer being present in the JS bindings.
+
 ### Expected Behavior
 * Variables defined during scenario execution must be accessible from subsequent JavaScript evaluations within the same scenario.
 * Nested feature execution (whether initiated by `call read(...)` or by Java invoking Karate while an outer scenario is running) must preserve the outer scenario's JavaScript context and bindings.
@@ -10,15 +22,9 @@
 * After nested feature executiom, Karate still prints the varaible value from its variable map, but JavaScript evaluation fails with `ReferenceError: "<var>" is not defined`.
 * This indicates that Karate's scenario variable map remains intact, but the JavaScript engine bindings/context used for evaluation no longer contains the variable.
 
-## Requirements
-* REQ-1: A JavaScript function evaluate within a scenario must be able to access variables defined earlier in that scenario (and any configured global JS bindings).
-* REQ-2: Executing a nested feature via Java (runner within runner) must not break the JS context of the outer scenario.
-* REQ-3 (regression): Fix must not change behavior of existing scenarios that do not use nested execution (including standard call chains and config loading).
+### Scope of Impact
+This issue affects any scenario that:
+- Defines variables accessed by JavaScript functions, and
+- Performs nested feature execution (directly or indirectly via Java).
 
-## Requirement Table
-| Req ID | Requirement | Why it matters | Impacted mechanisms | Example features | Verification|
-|--------|------------|---------------|--------------------|------------------|--------------|
-| REQ-1 | JS eval in a scenario must access variables defined earlier in the scenario (and configured JS globals). | Many features rely on JS helpers reading previously defined vars. | JS engine bindings, variable injection into JS context | js-read.feature, js-arrays.feature | Existing JS tests pass |
-| REQ-2 | Nested feature execution must not invalidate the outer scenario’s JS context. | Issue #2502 shows JS loses access to vars after nested execution. | Nested runtime lifecycle, context creation/restoration | JsVarAccess.feature (@JsScenarioWithCallToNestedRunner) | KarateJsGlobalTest (currently failing) |
-| REQ-3 | Fix must not change behavior of scenarios without nested execution (regression safety). | Context fixes can break existing tests. | Runner/Suite flow, config loading | js-read.feature, call-feature.feature | Full `mvn test` passes |
-## Identified Scenarios that execute JavaScript or reference JS sources
+Because many existing tests rely on JavaScript evaluation and nested feature calls, the regression risk of modifying JS context handling is high.
